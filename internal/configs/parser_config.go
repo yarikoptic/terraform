@@ -29,6 +29,15 @@ func (p *Parser) LoadConfigFileOverride(path string) (*File, hcl.Diagnostics) {
 	return p.loadConfigFile(path, true)
 }
 
+func (p *Parser) LoadTestFile(path string) (*TestFile, hcl.Diagnostics) {
+	body, diags := p.LoadHCLFile(path)
+	if body == nil {
+		return nil, diags
+	}
+
+	return loadTestFile(body)
+}
+
 func (p *Parser) loadConfigFile(path string, override bool) (*File, hcl.Diagnostics) {
 
 	body, diags := p.LoadHCLFile(path)

@@ -9,6 +9,10 @@ import (
 	"github.com/hashicorp/hcl/v2"
 )
 
+const (
+	TestsDir string = "tests"
+)
+
 // LoadConfigDir reads the .tf and .tf.json files in the given directory
 // as config files (using LoadConfigFile) and then combines these files into
 // a single Module.
@@ -29,7 +33,7 @@ import (
 // .tf files are parsed using the HCL native syntax while .tf.json files are
 // parsed using the HCL JSON syntax.
 func (p *Parser) LoadConfigDir(path string) (*Module, hcl.Diagnostics) {
-	primaryPaths, overridePaths, diags := p.dirFiles(path)
+	primaryPaths, overridePaths, _, diags := p.dirFiles(path, false)
 	if diags.HasErrors() {
 		return nil, diags
 	}
@@ -47,21 +51,66 @@ func (p *Parser) LoadConfigDir(path string) (*Module, hcl.Diagnostics) {
 	return mod, diags
 }
 
+// LoadConfigDirWithTests matches LoadConfigDir except it also includes any
+// test files found within the directory in the returned module.
+func (p *Parser) LoadConfigDirWithTests(path string) (*Module, hcl.Diagnostics) {
+	primaryPaths, overridePaths, testPaths, diags := p.dirFiles(path, true)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+
+	primary, fDiags := p.loadFiles(primaryPaths, false)
+	diags = append(diags, fDiags...)
+	override, fDiags := p.loadFiles(overridePaths, true)
+	diags = append(diags, fDiags...)
+	tests, fDiags := p.loadTestFiles(testPaths)
+	diags = append(diags, fDiags...)
+
+	mod, modDiags := NewModuleWithTests(primary, override, tests)
+	diags = append(diags, modDiags...)
+
+	mod.SourceDir = path
+
+	return mod, diags
+}
+
 // ConfigDirFiles returns lists of the primary and override files configuration
 // files in the given directory.
 //
 // If the given directory does not exist or cannot be read, error diagnostics
 // are returned. If errors are returned, the resulting lists may be incomplete.
 func (p Parser) ConfigDirFiles(dir string) (primary, override []string, diags hcl.Diagnostics) {
-	return p.dirFiles(dir)
+	primary, override, _, diags = p.dirFiles(dir, false)
+	return primary, override, diags
+}
+
+// ConfigDirFilesWithTests matches ConfigDirFiles except it also returns the
+// paths to any test files within the module.
+func (p Parser) ConfigDirFilesWithTests(dir string) (primary, override, tests []string, diags hcl.Diagnostics) {
+	return p.dirFiles(dir, true)
 }
 
 // IsConfigDir determines whether the given path refers to a directory that
 // exists and contains at least one Terraform config file (with a .tf or
 // .tf.json extension.)
 func (p *Parser) IsConfigDir(path string) bool {
-	primaryPaths, overridePaths, _ := p.dirFiles(path)
+	primaryPaths, overridePaths, _, _ := p.dirFiles(path, false)
 	return (len(primaryPaths) + len(overridePaths)) > 0
+}
+
+func (p *Parser) loadTestFiles(paths []string) (map[string]*TestFile, hcl.Diagnostics) {
+	var diags hcl.Diagnostics
+
+	tfs := make(map[string]*TestFile)
+	for _, path := range paths {
+		tf, fDiags := p.LoadTestFile(path)
+		diags = append(diags, fDiags...)
+		if tf != nil {
+			tfs[path] = tf
+		}
+	}
+
+	return tfs, diags
 }
 
 func (p *Parser) loadFiles(paths []string, override bool) ([]*File, hcl.Diagnostics) {
@@ -85,7 +134,7 @@ func (p *Parser) loadFiles(paths []string, override bool) ([]*File, hcl.Diagnost
 	return files, diags
 }
 
-func (p *Parser) dirFiles(dir string) (primary, override []string, diags hcl.Diagnostics) {
+func (p *Parser) dirFiles(dir string, includeTests bool) (primary, override, tests []string, diags hcl.Diagnostics) {
 	infos, err := p.fs.ReadDir(dir)
 	if err != nil {
 		diags = append(diags, &hcl.Diagnostic{
@@ -98,13 +147,44 @@ func (p *Parser) dirFiles(dir string) (primary, override []string, diags hcl.Dia
 
 	for _, info := range infos {
 		if info.IsDir() {
-			// We only care about files
+			if info.Name() == TestsDir && includeTests {
+				testsDir := filepath.Join(dir, info.Name())
+				testInfos, err := p.fs.ReadDir(testsDir)
+				if err != nil {
+					diags = append(diags, &hcl.Diagnostic{
+						Severity: hcl.DiagError,
+						Summary:  "Failed to read module test directory",
+						Detail:   fmt.Sprintf("Module test directory %s does not exist or cannot be read.", testsDir),
+					})
+					return
+				}
+
+				for _, testInfo := range testInfos {
+					if testInfo.IsDir() || IsIgnoredFile(testInfo.Name()) {
+						continue
+					}
+
+					if strings.HasSuffix(testInfo.Name(), ".tftest") {
+						tests = append(tests, filepath.Join(testsDir, testInfo.Name()))
+					}
+				}
+			}
+
+			// We only care about the tests directory or terraform configuration
+			// files.
 			continue
 		}
 
 		name := info.Name()
 		ext := fileExt(name)
 		if ext == "" || IsIgnoredFile(name) {
+			continue
+		}
+
+		if ext == ".tftest" {
+			if includeTests {
+				tests = append(tests, filepath.Join(dir, name))
+			}
 			continue
 		}
 
@@ -129,6 +209,8 @@ func fileExt(path string) string {
 		return ".tf"
 	} else if strings.HasSuffix(path, ".tf.json") {
 		return ".tf.json"
+	} else if strings.HasSuffix(path, ".tftest") {
+		return ".tftest"
 	} else {
 		return ""
 	}
@@ -154,10 +236,11 @@ func IsEmptyDir(path string) (bool, error) {
 	}
 
 	p := NewParser(nil)
-	fs, os, diags := p.dirFiles(path)
+	fs, os, _, diags := p.dirFiles(path, false)
 	if diags.HasErrors() {
 		return false, diags
 	}
 
+	// We don't care about test files when deciding if a directory is empty.
 	return len(fs) == 0 && len(os) == 0, nil
 }

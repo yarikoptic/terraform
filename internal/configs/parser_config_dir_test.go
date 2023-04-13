@@ -9,7 +9,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 )
 
-// TestParseLoadConfigDirSuccess is a simple test that just verifies that
+// TestParserLoadConfigDirSuccess is a simple test that just verifies that
 // a number of test configuration directories (in testdata/valid-modules)
 // can be parsed without raising any diagnostics.
 //
@@ -104,6 +104,35 @@ func TestParserLoadConfigDirSuccess(t *testing.T) {
 
 }
 
+// TestParserLoadConfigDirWithTestsSuccess is similar to
+// TestParserLoadConfigDirSuccess except it specifically loads the configs that
+// have test files included and validates the test files have successfully been
+// read.
+func TestParserLoadConfigDirWithTestsSuccess(t *testing.T) {
+	tcs := []string{
+		"testdata/valid-modules/with-tests",
+		"testdata/valid-modules/with-nested-tests",
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc, func(t *testing.T) {
+			parser := NewParser(nil)
+
+			mod, diags := parser.LoadConfigDirWithTests(tc)
+			if len(diags) > 0 {
+				t.Errorf("unexpected diagnostics")
+				for _, diag := range diags {
+					t.Logf("- %s", diag)
+				}
+			}
+
+			if len(mod.Tests) == 0 {
+				t.Errorf("expected tests but found none")
+			}
+		})
+	}
+}
+
 // TestParseLoadConfigDirFailure is a simple test that just verifies that
 // a number of test configuration directories (in testdata/invalid-modules)
 // produce diagnostics when parsed.
@@ -190,6 +219,16 @@ func TestIsEmptyDir_noExist(t *testing.T) {
 
 func TestIsEmptyDir_noConfigs(t *testing.T) {
 	val, err := IsEmptyDir(filepath.Join("testdata", "dir-empty"))
+	if err != nil {
+		t.Fatalf("err: %s", err)
+	}
+	if !val {
+		t.Fatal("should be empty")
+	}
+}
+
+func TestIsEmptyDir_withTests(t *testing.T) {
+	val, err := IsEmptyDir(filepath.Join("testdata", "dir-empty-with-tests"))
 	if err != nil {
 		t.Fatalf("err: %s", err)
 	}

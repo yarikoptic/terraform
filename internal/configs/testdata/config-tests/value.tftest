@@ -1,0 +1,17 @@
+run {
+  command = plan
+
+  assert {
+    condition = test.test.value == "my_value"
+    error_message = "invalid value"
+  }
+}
+
+run {
+  command = apply
+
+  assert {
+    condition = test.test.value == "my_value"
+    error_message = "invalid value"
+  }
+}
