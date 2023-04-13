@@ -3,6 +3,7 @@ package configs
 import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
+	"github.com/zclconf/go-cty/cty"
 )
 
 // TestCommand represents the Terraform command a given run block will execute.
@@ -34,7 +35,7 @@ const (
 type TestFile struct {
 	// Variables defines a set of global variable definitions that should be set
 	// for every run block within the test file.
-	Variables []hcl.KeyValuePair
+	Variables map[string]hcl.Expression
 
 	// Runs defines the sequential list of run blocks that should be executed in
 	// order.
@@ -77,7 +78,7 @@ type Run struct {
 	//
 	// Any variables specified locally that clash with the global variables will
 	// take precedence over the global definition.
-	Variables []hcl.KeyValuePair
+	Variables map[string]hcl.Expression
 
 	// CheckRules defines the list of assertions/validations that should be
 	// checked by this run block.
@@ -108,7 +109,8 @@ func loadTestFile(body hcl.Body) (*TestFile, hcl.Diagnostics) {
 	if attr, exists := content.Attributes["variables"]; exists {
 		vars, varsDiags := hcl.ExprMap(attr.Expr)
 		diags = append(diags, varsDiags...)
-		tf.Variables = vars
+		tf.Variables, varsDiags = toVariableMap(vars)
+		diags = append(diags, varsDiags...)
 	}
 
 	return &tf, diags
@@ -199,10 +201,38 @@ func decodeTestRun(block *hcl.Block) (*Run, hcl.Diagnostics) {
 	if attr, exists := content.Attributes["variables"]; exists {
 		vars, varsDiags := hcl.ExprMap(attr.Expr)
 		diags = append(diags, varsDiags...)
-		r.Variables = vars
+		r.Variables, varsDiags = toVariableMap(vars)
+		diags = append(diags, varsDiags...)
 	}
 
 	return &r, diags
+}
+
+func toVariableMap(vars []hcl.KeyValuePair) (map[string]hcl.Expression, hcl.Diagnostics) {
+	var diags hcl.Diagnostics
+	variables := make(map[string]hcl.Expression)
+
+	for _, v := range vars {
+		key, keyDiags := v.Key.Value(nil)
+		diags = append(diags, keyDiags...)
+		if keyDiags.HasErrors() {
+			continue
+		}
+
+		if key.Type() != cty.String {
+			diags = append(diags, &hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  "Invalid variable name",
+				Detail:   "Variable names must be strings",
+				Subject:  v.Key.Range().Ptr(),
+			})
+			continue
+		}
+
+		variables[key.AsString()] = v.Value
+	}
+
+	return variables, diags
 }
 
 var testFileSchema = &hcl.BodySchema{

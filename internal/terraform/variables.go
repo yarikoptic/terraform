@@ -102,6 +102,10 @@ const (
 	// ValueFromCaller indicates that the value was explicitly overridden by
 	// a caller to Context.SetVariable after the context was constructed.
 	ValueFromCaller ValueSourceType = 'S'
+
+	// ValueFromTest indicates that the value was provided via test input during
+	// a test run execution.
+	ValueFromTest ValueSourceType = 'T'
 )
 
 func (v *InputValue) GoString() string {
