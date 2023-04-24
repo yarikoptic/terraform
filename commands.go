@@ -281,6 +281,12 @@ func initCommands(
 			}, nil
 		},
 
+		"mtest": func() (cli.Command, error) {
+			return &command.MTestCommand{
+				Meta: meta,
+			}, nil
+		},
+
 		"test": func() (cli.Command, error) {
 			return &command.TestCommand{
 				Meta: meta,

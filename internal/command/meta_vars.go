@@ -2,6 +2,7 @@ package command
 
 import (
 	"fmt"
+	"github.com/zclconf/go-cty/cty"
 	"io/ioutil"
 	"os"
 	"strings"
@@ -262,4 +263,20 @@ func (v unparsedVariableValueString) ParseVariableValue(mode configs.VariablePar
 		Value:      val,
 		SourceType: v.sourceType,
 	}, diags
+}
+
+// unparsedUnknownVariableValue is a backend.UnparsedVariableValue
+// implementation that returns its value as unknown. This can be used to deal
+// with supplying required variables into a destroy operation that will not
+// reference them.
+type unparsedUnknownVariableValue struct {
+	Name     string
+	WantType cty.Type
+}
+
+func (v unparsedUnknownVariableValue) ParseVariableValue(mode configs.VariableParsingMode) (*terraform.InputValue, tfdiags.Diagnostics) {
+	return &terraform.InputValue{
+		Value:      cty.UnknownVal(v.WantType),
+		SourceType: terraform.ValueFromInput,
+	}, nil
 }
