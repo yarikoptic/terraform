@@ -1449,6 +1449,7 @@ func (n *NodeAbstractResourceInstance) readDataSource(ctx EvalContext, configVal
 
 	resp := provider.ReadDataSource(providers.ReadDataSourceRequest{
 		TypeName:     n.Addr.ContainingResource().Resource.Type,
+		Name:         n.Addr.ContainingResource().Resource.Name,
 		Config:       configVal,
 		ProviderMeta: metaConfigVal,
 	})
@@ -2295,6 +2296,7 @@ func (n *NodeAbstractResourceInstance) apply(
 
 	resp := provider.ApplyResourceChange(providers.ApplyResourceChangeRequest{
 		TypeName:       n.Addr.Resource.Resource.Type,
+		Name:           n.Addr.Resource.Resource.Name,
 		PriorState:     unmarkedBefore,
 		Config:         unmarkedConfigVal,
 		PlannedState:   unmarkedAfter,

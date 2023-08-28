@@ -295,6 +295,9 @@ type ApplyResourceChangeRequest struct {
 	// TypeName is the name of the resource type being applied.
 	TypeName string
 
+	// Name is the name of the resource as specified in the configuration.
+	Name string
+
 	// PriorState is the current state of resource.
 	PriorState cty.Value
 
@@ -399,6 +402,9 @@ func (ir ImportedResource) AsInstanceObject() *states.ResourceInstanceObject {
 type ReadDataSourceRequest struct {
 	// TypeName is the name of the data source type to Read.
 	TypeName string
+
+	// Name is the name of the data source as specified in the configuration.
+	Name string
 
 	// Config is the complete configuration for the requested data source.
 	Config cty.Value

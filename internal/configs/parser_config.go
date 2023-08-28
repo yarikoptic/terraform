@@ -127,7 +127,7 @@ func (p *Parser) loadConfigFile(path string, override bool) (*File, hcl.Diagnost
 			})
 
 		case "provider":
-			cfg, cfgDiags := decodeProviderBlock(block)
+			cfg, cfgDiags := decodeProviderBlock(block, "provider")
 			diags = append(diags, cfgDiags...)
 			if cfg != nil {
 				file.ProviderConfigs = append(file.ProviderConfigs, cfg)

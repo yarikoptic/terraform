@@ -241,10 +241,22 @@ func loadTestFile(body hcl.Body) (*TestFile, hcl.Diagnostics) {
 			for _, v := range vars {
 				tf.Variables[v.Name] = v.Expr
 			}
-		case "provider":
-			provider, providerDiags := decodeProviderBlock(block)
+		case "provider", "mock":
+			provider, providerDiags := decodeProviderBlock(block, block.Type)
 			diags = append(diags, providerDiags...)
 			if provider != nil {
+				key := provider.moduleUniqueKey()
+				if other, exists := tf.Providers[key]; exists {
+					diags = diags.Append(&hcl.Diagnostic{
+						Severity: hcl.DiagError,
+						Summary:  "Conflicting provider definitions",
+						Detail:   fmt.Sprintf("A provider keyed by %s has already been declared at %s, please use the \"alias\" keyword to ensure provider definitions are unique.", key, other.DeclRange),
+						Subject:  provider.DeclRange.Ptr(),
+					})
+					continue
+				}
+
+				provider.Mock = block.Type == "mock"
 				tf.Providers[provider.moduleUniqueKey()] = provider
 			}
 		}
@@ -546,6 +558,10 @@ var testFileSchema = &hcl.BodySchema{
 		},
 		{
 			Type:       "provider",
+			LabelNames: []string{"name"},
+		},
+		{
+			Type:       "mock",
 			LabelNames: []string{"name"},
 		},
 		{

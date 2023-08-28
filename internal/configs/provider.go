@@ -29,6 +29,15 @@ type Provider struct {
 
 	DeclRange hcl.Range
 
+	// Mock tells this provider block that the resource operations for this
+	// provider should be mocked. That is to say, it won't create real
+	// infrastructure and just read from / write to state directly.
+	Mock bool
+
+	// Source tells a mock provider where to look for definitions of data
+	// sources, importable resources, and resources.
+	Source string
+
 	// TODO: this may not be set in some cases, so it is not yet suitable for
 	// use outside of this package. We currently only use it for internal
 	// validation, but once we verify that this can be set in all cases, we can
@@ -37,7 +46,7 @@ type Provider struct {
 	providerType addrs.Provider
 }
 
-func decodeProviderBlock(block *hcl.Block) (*Provider, hcl.Diagnostics) {
+func decodeProviderBlock(block *hcl.Block, mode string) (*Provider, hcl.Diagnostics) {
 	var diags hcl.Diagnostics
 
 	content, config, moreDiags := block.Body.PartialContent(providerBlockSchema)
@@ -88,8 +97,20 @@ func decodeProviderBlock(block *hcl.Block) (*Provider, hcl.Diagnostics) {
 		diags = append(diags, versionDiags...)
 	}
 
+	if attr, exists := content.Attributes["source"]; exists {
+		if mode == "mock" {
+			diags = append(diags, gohcl.DecodeExpression(attr.Expr, nil, &provider.Source)...)
+		} else {
+			diags = append(diags, &hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  "Invalid source attribute",
+				Detail:   "The source attribute can only be specified when defining a mock provider.",
+			})
+		}
+	}
+
 	// Reserved attribute names
-	for _, name := range []string{"count", "depends_on", "for_each", "source"} {
+	for _, name := range []string{"count", "depends_on", "for_each"} {
 		if attr, exists := content.Attributes[name]; exists {
 			diags = append(diags, &hcl.Diagnostic{
 				Severity: hcl.DiagError,
