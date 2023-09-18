@@ -10,6 +10,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/hashicorp/terraform/internal/addrs"
+	"github.com/hashicorp/terraform/internal/instances"
 	"github.com/hashicorp/terraform/internal/lang"
 	"github.com/hashicorp/terraform/internal/lang/marks"
 	"github.com/hashicorp/terraform/internal/tfdiags"
@@ -54,12 +55,12 @@ type forEachEvaluator struct {
 // ResourceForEachValue returns a known for_each map[string]cty.Value
 // appropriate for use within resource expansion.
 func (ev *forEachEvaluator) ResourceValue() (map[string]cty.Value, tfdiags.Diagnostics) {
+	res := map[string]cty.Value{}
+
 	// no expression always results in an empty map
 	if ev.expr == nil {
-		return map[string]cty.Value{}, nil
+		return res, nil
 	}
-
-	res := map[string]cty.Value{}
 
 	forEachVal, diags := ev.Value()
 	if diags.HasErrors() {
@@ -84,6 +85,44 @@ func (ev *forEachEvaluator) ResourceValue() (map[string]cty.Value, tfdiags.Diagn
 	}
 
 	res = forEachVal.AsValueMap()
+	return res, diags
+}
+
+// ImportValue returns the for_each map for use within an import block,
+// enumerated as individual instances.RepetitionData values.
+func (ev *forEachEvaluator) ImportValues() ([]instances.RepetitionData, tfdiags.Diagnostics) {
+	var res []instances.RepetitionData
+	if ev.expr == nil {
+		return res, nil
+	}
+
+	forEachVal, diags := ev.Value()
+	if diags.HasErrors() {
+		return res, diags
+	}
+
+	// ensure our value is known for use in resource expansion
+	diags = diags.Append(ev.ensureKnownForImport(forEachVal))
+	if diags.HasErrors() {
+		return res, diags
+	}
+
+	if forEachVal.IsNull() {
+		return res, diags
+	}
+
+	val, marks := forEachVal.Unmark()
+
+	it := val.ElementIterator()
+	for it.Next() {
+		k, v := it.Element()
+		res = append(res, instances.RepetitionData{
+			EachKey:   k,
+			EachValue: v.WithMarks(marks),
+		})
+
+	}
+
 	return res, diags
 }
 
@@ -116,6 +155,25 @@ func (ev *forEachEvaluator) Value() (cty.Value, tfdiags.Diagnostics) {
 	diags = diags.Append(forEachDiags)
 
 	return forEachVal, diags
+}
+
+// ensureKnownForImport checks that the value is entirely known for use within
+// import expansion.
+func (ev *forEachEvaluator) ensureKnownForImport(forEachVal cty.Value) tfdiags.Diagnostics {
+	var diags tfdiags.Diagnostics
+
+	if !forEachVal.IsWhollyKnown() {
+		diags = diags.Append(&hcl.Diagnostic{
+			Severity:    hcl.DiagError,
+			Summary:     "Invalid for_each argument",
+			Detail:      "The \"for_each\" expression includes values derived from other resource attributes that cannot be determined until apply, and so Terraform cannot determine the full set of values that might be used to import this resource.",
+			Subject:     ev.expr.Range().Ptr(),
+			Expression:  ev.expr,
+			EvalContext: ev.hclCtx,
+			Extra:       diagnosticCausedByUnknown(true),
+		})
+	}
+	return diags
 }
 
 // ensureKnownForResource checks that the value is known within the rules of
